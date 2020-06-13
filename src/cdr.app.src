@@ -2,7 +2,7 @@
              [{applications,[kazoo,kazoo_amqp,kazoo_apps,kazoo_data,
                              kazoo_documents,kazoo_modb,kazoo_stdlib,kernel,
                              lager,stdlib]},
-              {description,"Listen and record CDR events into CouchDB"},
+              {description,"CDR: Save CDR payloads into the database"},
               {env,[{is_kazoo_app,true}]},
               {mod,{cdr_app,[]}},
               {modules,[]},
