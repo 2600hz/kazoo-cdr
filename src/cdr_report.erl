@@ -27,7 +27,6 @@
 
 -spec handle_req(kz_call_event:payload(), kz_term:proplist()) -> 'ok'.
 handle_req(JObj, _Props) ->
-    lager:debug_unsafe("RECEIVED DESTROY"),
     'true' = kapi_cdr:report_v(JObj),
     _ = kz_log:put_callid(JObj),
     Routines = [fun maybe_ignore_app/1
@@ -136,11 +135,11 @@ update_ccvs_foldl(Key, Value,  {JObj, CCVs}=Acc) ->
 -spec set_doc_id(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
           kz_call_event:payload().
 set_doc_id(_AcctId, Timestamp, JObj) ->
-    CallId = kapi_cdr:call_id(JObj),
-    %% we should consider this because there is a lost channel in case of
-    %% nightmare transfers
-    %%    CallId = kz_binary:rand_hex(16),
-    DocId = cdr_util:get_cdr_doc_id(Timestamp, CallId),
+    ReportId = kapi_cdr:call_id(JObj),
+    %% we should consider adding kz_binary:rand_hex(16) as ReportId
+    %% as there may exist the same CallId in different servers
+    %% like in the case of nightmare transfers or conference bridges
+    DocId = cdr_util:get_cdr_doc_id(Timestamp, ReportId),
     kz_doc:set_id(JObj, DocId).
 
 -spec set_call_priority(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
@@ -182,8 +181,6 @@ maybe_leak_ccv(JObj, Key, {GetFun, Default}) ->
                                   )
     end.
 
-%% TODO
-%% Maybe Remove this
 -spec set_interaction(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
           kz_call_event:payload().
 set_interaction(_AccountId, _Timestamp, JObj) ->
@@ -191,6 +188,8 @@ set_interaction(_AccountId, _Timestamp, JObj) ->
                        ,{<<"Interaction-Key">>, kapi_cdr:interaction_key(JObj)}
                        ,{<<"Interaction-Id">>, kapi_cdr:interaction_id(JObj)}
                        ,{<<"Interaction-Is-Root">>, kapi_cdr:interaction_is_root(JObj)}
+                       ,{?CCV(<<?CALL_INTERACTION_ID>>), null}
+                       ,{?CCV(<<?CALL_INTERACTION, "-Is-Root">>), null}
                        ]
                       ,JObj
                       ).
@@ -201,5 +200,5 @@ save_cdr(_AcctId, _Timestamp, JObj) ->
     case cdr_util:save_cdr(CDRDb, kz_json:normalize_jobj(JObj)) of
         {'error', 'max_save_retries'} ->
             lager:error("write failed to ~s, too many retries", [CDRDb]);
-        'ok' -> lager:debug_unsafe("CDR SAVED")
+        'ok' -> lager:debug_unsafe("cdr.report saved")
     end.

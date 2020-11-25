@@ -37,13 +37,6 @@
 
 -define(SERVER, ?MODULE).
 
--define(RESPONDERS, [{'cdr_channel_destroy', [{<<"call_event">>, <<"CHANNEL_DESTROY">>}]}
-                    ,{'cdr_report', [{<<"cdr">>, <<"report">>}]}
-                    ]).
--define(BINDINGS, [{'call', [{'restrict_to', ['CHANNEL_DESTROY']}]}
-                  ,{'cdr', [{'restrict_to', ['report']}]}
-                  ]).
-
 -define(QUEUE_NAME, <<"cdr_listener">>).
 -define(QUEUE_OPTIONS, [{'exclusive', 'false'}]).
 -define(CONSUME_OPTIONS, [{'exclusive', 'false'}]).
@@ -58,8 +51,9 @@
 %%------------------------------------------------------------------------------
 -spec start_link() -> kz_types:startlink_ret().
 start_link() ->
-    gen_listener:start_link(?SERVER, [{'responders', ?RESPONDERS}
-                                     ,{'bindings', ?BINDINGS}
+    Handler = cdr_handler(),
+    gen_listener:start_link(?SERVER, [{'responders', responders(Handler)}
+                                     ,{'bindings', bindings(Handler)}
                                      ,{'queue_name', ?QUEUE_NAME}
                                      ,{'queue_options', ?QUEUE_OPTIONS}
                                      ,{'consume_options', ?CONSUME_OPTIONS}
@@ -195,3 +189,19 @@ update_accounts_view(UpdateList) ->
 maybe_spawn_refresh_process([]) -> ok;
 maybe_spawn_refresh_process(RefreshList) ->
     _ = kz_process:spawn(fun update_accounts_view/1, [RefreshList]).
+
+-spec cdr_handler() -> atom().
+cdr_handler() ->
+    kapps_config:get_atom(?CONFIG_CAT, <<"cdr_handler">>, cdr_report).
+
+-spec responders(atom()) -> listener_utils:responders().
+responders(cdr_report) ->
+    [{'cdr_report', [{<<"cdr">>, <<"report">>}]}];
+responders(cdr_channel_destroy) ->
+    [{'cdr_channel_destroy', [{<<"call_event">>, <<"CHANNEL_DESTROY">>}]}].
+
+-spec bindings(atom()) -> gen_listener:bindings().
+bindings(cdr_report) ->
+    [{'cdr', [{'restrict_to', ['report']}]}];
+bindings(cdr_channel_destroy) ->
+    [{'call', [{'restrict_to', ['CHANNEL_DESTROY']}]}].
