@@ -203,18 +203,24 @@ maybe_leak_ccv(JObj, Key, {GetFun, Default}) ->
           kz_call_event:payload().
 set_interaction(_AccountId, _Timestamp, JObj) ->
     %% See {@link prepare_and_save/3} for an edge case for Timestamp
-    Interaction = kz_call_event:custom_channel_var(JObj, <<?CALL_INTERACTION_ID>>, ?CALL_INTERACTION_DEFAULT),
+    InteractionKey = <<?CALL_INTERACTION_ID>>,
+    InteractionIsRootKey = <<?CALL_INTERACTION, "-Is-Root">>,
+    Interaction = kz_call_event:custom_channel_var(JObj, InteractionKey, ?CALL_INTERACTION_DEFAULT),
+    InteractionIsRoot = kz_call_event:custom_channel_var(JObj, InteractionIsRootKey, false),
     <<Time:11/binary, "-", Key/binary>> = Interaction,
     Timestamp = kz_term:to_integer(Time),
-    CallId = kz_call_event:call_id(JObj),
-    DocId = cdr_util:get_cdr_doc_id(Timestamp, CallId),
-
-    kz_json:set_values([{<<"Interaction-Time">>, Timestamp}
-                       ,{<<"Interaction-Key">>, Key}
-                       ,{<<"Interaction-Id">>, Interaction}
-                       ]
-                      ,kz_json:delete_key(?CCV(<<?CALL_INTERACTION_ID>>), kz_doc:set_id(JObj, DocId))
-                      ).
+    DeleteKeys = [?CCV(InteractionKey)
+                 ,?CCV(InteractionIsRootKey)
+                 ],
+    Values = [{<<"Interaction-Time">>, Timestamp}
+             ,{<<"Interaction-Key">>, Key}
+             ,{<<"Interaction-Id">>, Interaction}
+             ,{<<"Interaction-Is-Root">>, InteractionIsRoot}
+             ],
+    Routines = [fun(J) -> kz_json:delete_keys(DeleteKeys, J) end
+               ,fun(J) -> kz_json:set_values(Values, J) end
+               ],
+    lists:foldl(fun(F, Acc) -> F(Acc) end, JObj, Routines).
 
 -spec save_cdr(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> 'ok'.
 save_cdr(_AcctId, _Timestamp, JObj) ->
