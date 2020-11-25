@@ -25,9 +25,8 @@
 -define(CHANNEL_VARS, <<"Custom-Channel-Vars">>).
 -define(CCV(Key), [?CHANNEL_VARS, Key]).
 
--spec handle_req(kz_call_event:doc(), kz_term:proplist()) -> 'ok'.
+-spec handle_req(kz_call_event:payload(), kz_term:proplist()) -> 'ok'.
 handle_req(JObj, _Props) ->
-    lager:debug_unsafe("RECEIVED DESTROY"),
     'true' = kapi_cdr:report_v(JObj),
     _ = kz_log:put_callid(JObj),
     Routines = [fun maybe_ignore_app/1
@@ -39,21 +38,21 @@ handle_req(JObj, _Props) ->
             lists:foreach(fun(M) -> lager:debug("~s", [M]) end, List)
     end.
 
--spec maybe_ignore_cdr(fun(), {kz_call_event:doc(), list()}) -> {kz_call_event:doc(), list()}.
+-spec maybe_ignore_cdr(fun(), {kz_call_event:payload(), list()}) -> {kz_call_event:payload(), list()}.
 maybe_ignore_cdr(Fun, {JObj, Acc}) ->
     case Fun(JObj) of
         {'true', M} -> {JObj, [M | Acc]};
         _ -> {JObj, Acc}
     end.
 
--spec maybe_ignore_app(kz_call_event:doc()) -> {boolean(), binary()}.
+-spec maybe_ignore_app(kz_call_event:payload()) -> {boolean(), binary()}.
 maybe_ignore_app(JObj) ->
     AppName = kz_term:to_binary(kz_call_event:application_name(JObj)),
     {lists:member(AppName, ?IGNORED_APP)
     ,<<"ignoring cdr request from ", AppName/binary>>
     }.
 
--spec maybe_ignore_loopback(kz_call_event:doc()) -> {boolean(), binary()}.
+-spec maybe_ignore_loopback(kz_call_event:payload()) -> {boolean(), binary()}.
 maybe_ignore_loopback(JObj) ->
     {kz_term:is_true(?IGNORE_LOOPBACK(kz_call_event:account_id(JObj)))
      andalso kz_json:is_true(<<"Channel-Is-Loopback">>, JObj)
@@ -70,13 +69,13 @@ is_normal_hangup_cause('undefined') -> 'true';
 is_normal_hangup_cause(<<"NORMAL", _/binary>>) -> 'true';
 is_normal_hangup_cause(_) -> 'false'.
 
--spec handle_req(kz_call_event:doc()) -> 'ok'.
+-spec handle_req(kz_call_event:payload()) -> 'ok'.
 handle_req(JObj) ->
     AccountId = kapi_cdr:account_id(JObj),
     Timestamp = kapi_cdr:timestamp(JObj),
     prepare_and_save(AccountId, Timestamp, JObj).
 
--spec prepare_and_save(account_id(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> 'ok'.
+-spec prepare_and_save(account_id(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> 'ok'.
 prepare_and_save(AccountId, Timestamp, JObj) ->
     Routines = [fun update_ccvs/3
                ,fun set_doc_id/3
@@ -96,8 +95,8 @@ prepare_and_save(AccountId, Timestamp, JObj) ->
                    ),
     'ok'.
 
--spec update_pvt_parameters(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) ->
-          kz_call_event:doc().
+-spec update_pvt_parameters(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
+          kz_call_event:payload().
 update_pvt_parameters('undefined', _, JObj) ->
     Props = [{'type', 'cdr'}
             ,{'crossbar_doc_vsn', 3}
@@ -111,8 +110,8 @@ update_pvt_parameters(AccountId, Timestamp, JObj) ->
             ],
     kz_doc:update_pvt_parameters(JObj, AccountMODb, Props).
 
--spec update_ccvs(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) ->
-          kz_call_event:doc().
+-spec update_ccvs(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
+          kz_call_event:payload().
 update_ccvs(_, _, JObj) ->
     CCVs = kz_call_event:custom_channel_vars(JObj, kz_json:new()),
     {UpdatedJobj, UpdatedCCVs} =
@@ -122,8 +121,8 @@ update_ccvs(_, _, JObj) ->
                      ),
     kz_json:set_value(?CHANNEL_VARS, UpdatedCCVs, UpdatedJobj).
 
--spec update_ccvs_foldl(kz_json:get_key(), kz_json:json_term(), {kz_call_event:doc(), kz_json:object()}) ->
-          {kz_call_event:doc(), kz_json:object()}.
+-spec update_ccvs_foldl(kz_json:get_key(), kz_json:json_term(), {kz_call_event:payload(), kz_json:object()}) ->
+          {kz_call_event:payload(), kz_json:object()}.
 update_ccvs_foldl(Key, Value,  {JObj, CCVs}=Acc) ->
     case kz_doc:is_private_key(Key) of
         'false' -> Acc;
@@ -133,45 +132,45 @@ update_ccvs_foldl(Key, Value,  {JObj, CCVs}=Acc) ->
             }
     end.
 
--spec set_doc_id(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) ->
-          kz_call_event:doc().
+-spec set_doc_id(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
+          kz_call_event:payload().
 set_doc_id(_AcctId, Timestamp, JObj) ->
-    CallId = kapi_cdr:call_id(JObj),
-    %% we should consider this because there is a lost channel in case of
-    %% nightmare transfers
-    %%    CallId = kz_binary:rand_hex(16),
-    DocId = cdr_util:get_cdr_doc_id(Timestamp, CallId),
+    ReportId = kapi_cdr:call_id(JObj),
+    %% we should consider adding kz_binary:rand_hex(16) as ReportId
+    %% as there may exist the same CallId in different servers
+    %% like in the case of nightmare transfers or conference bridges
+    DocId = cdr_util:get_cdr_doc_id(Timestamp, ReportId),
     kz_doc:set_id(JObj, DocId).
 
--spec set_call_priority(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> kz_call_event:doc().
+-spec set_call_priority(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 set_call_priority(_AccountId, _Timestamp, JObj) ->
     maybe_leak_ccv(JObj, <<"Call-Priority">>).
 
--spec set_recording_url(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> kz_call_event:doc().
+-spec set_recording_url(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 set_recording_url(_AccountId, _Timestamp, JObj) ->
     maybe_leak_ccv(JObj, <<"Recording-Url">>).
 
--spec maybe_set_e164_destination(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> kz_call_event:doc().
+-spec maybe_set_e164_destination(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 maybe_set_e164_destination(_AccountId, _Timestamp, JObj) ->
     maybe_leak_ccv(JObj, <<"E164-Destination">>).
 
--spec maybe_set_e164_origination(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> kz_call_event:doc().
+-spec maybe_set_e164_origination(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 maybe_set_e164_origination(_AccountId, _Timestamp, JObj) ->
     maybe_leak_ccv(JObj, <<"E164-Origination">>).
 
--spec maybe_set_did_classifier(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> kz_call_event:doc().
+-spec maybe_set_did_classifier(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 maybe_set_did_classifier(_AccountId, _Timestamp, JObj) ->
     maybe_leak_ccv(JObj, <<"DID-Classifier">>).
 
--spec is_conference(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> kz_call_event:doc().
+-spec is_conference(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 is_conference(_AccountId, _Timestamp, JObj) ->
     maybe_leak_ccv(JObj, <<"Is-Conference">>, {fun kz_json:is_true/3, 'false'}).
 
--spec maybe_leak_ccv(kz_call_event:doc(), kz_json:get_key()) -> kz_call_event:doc().
+-spec maybe_leak_ccv(kz_call_event:payload(), kz_json:get_key()) -> kz_call_event:payload().
 maybe_leak_ccv(JObj, Key) ->
     maybe_leak_ccv(JObj, Key, {fun kz_json:get_value/3, 'undefined'}).
 
--spec maybe_leak_ccv(kz_call_event:doc(), kz_json:get_key(), {fun(), any()}) -> kz_call_event:doc().
+-spec maybe_leak_ccv(kz_call_event:payload(), kz_json:get_key(), {fun(), any()}) -> kz_call_event:payload().
 maybe_leak_ccv(JObj, Key, {GetFun, Default}) ->
     case GetFun(?CCV(Key), JObj, Default) of
         'undefined' -> JObj;
@@ -182,24 +181,24 @@ maybe_leak_ccv(JObj, Key, {GetFun, Default}) ->
                                   )
     end.
 
-%% TODO
-%% Maybe Remove this
--spec set_interaction(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) ->
-          kz_call_event:doc().
+-spec set_interaction(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
+          kz_call_event:payload().
 set_interaction(_AccountId, _Timestamp, JObj) ->
     kz_json:set_values([{<<"Interaction-Time">>, kapi_cdr:interaction_timestamp(JObj)}
                        ,{<<"Interaction-Key">>, kapi_cdr:interaction_key(JObj)}
                        ,{<<"Interaction-Id">>, kapi_cdr:interaction_id(JObj)}
                        ,{<<"Interaction-Is-Root">>, kapi_cdr:interaction_is_root(JObj)}
+                       ,{?CCV(<<?CALL_INTERACTION_ID>>), null}
+                       ,{?CCV(<<?CALL_INTERACTION, "-Is-Root">>), null}
                        ]
                       ,JObj
                       ).
 
--spec save_cdr(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:doc()) -> 'ok'.
+-spec save_cdr(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> 'ok'.
 save_cdr(_AcctId, _Timestamp, JObj) ->
     CDRDb = kz_doc:account_db(JObj),
     case cdr_util:save_cdr(CDRDb, kz_json:normalize_jobj(JObj)) of
         {'error', 'max_save_retries'} ->
             lager:error("write failed to ~s, too many retries", [CDRDb]);
-        'ok' -> lager:debug_unsafe("CDR SAVED")
+        'ok' -> lager:debug_unsafe("cdr.report saved")
     end.
