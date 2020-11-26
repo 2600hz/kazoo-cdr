@@ -85,6 +85,7 @@ prepare_and_save(AccountId, Timestamp, JObj) ->
                ,fun maybe_set_e164_origination/3
                ,fun maybe_set_did_classifier/3
                ,fun is_conference/3
+               ,fun check_attendend_transfer/3
                ,fun set_interaction/3
                ,fun update_pvt_parameters/3 %% due to interaction-timestamp MUST be called LAST
                ,fun save_cdr/3
@@ -190,9 +191,41 @@ set_interaction(_AccountId, _Timestamp, JObj) ->
                        ,{<<"Interaction-Is-Root">>, kapi_cdr:interaction_is_root(JObj)}
                        ,{?CCV(<<?CALL_INTERACTION_ID>>), null}
                        ,{?CCV(<<?CALL_INTERACTION, "-Is-Root">>), null}
+                       ,{<<"Call-Interaction">>, null}
                        ]
                       ,JObj
                       ).
+
+-spec check_attendend_transfer(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
+check_attendend_transfer(AccountId, Timestamp, JObj) ->
+    case kz_call_event:hangup_cause(JObj) of
+        <<"ATTENDED_TRANSFER">> ->
+            kz_process:spawn(fun fix_att_xfer_interaction_id/3, [AccountId, Timestamp, JObj]),
+            JObj;
+        _Other ->
+            JObj
+    end.
+
+-spec originated_uuids(kz_call_event:payload()) -> kz_term:ne_binaries().
+originated_uuids(JObj) ->
+    props:filter_undefined([kz_json:get_ne_binary_value(<<"Call-ID">>, J) || J <- kz_json:get_list_value(<<"Originated-Legs">>, JObj, [])]).
+
+fix_att_xfer_interaction_id(AccountId, Timestamp, JObj) ->
+    Props = [{<<"interaction_time">>, kapi_cdr:interaction_timestamp(JObj)}
+            ,{<<"interaction_key">>, kapi_cdr:interaction_key(JObj)}
+            ,{<<"interaction_id">>, kapi_cdr:interaction_id(JObj)}
+            ,{<<"interaction_is_root">>, null}
+            ],
+    Legs = originated_uuids(JObj),
+    lager:info_unsafe("legs => ~p", [Legs]),
+    fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
+
+fix_att_xfer_interaction_id(_AccountId, _Timestamp, [], _Props) -> ok;
+fix_att_xfer_interaction_id(AccountId, Timestamp, [Leg | Legs], Props) ->
+    DB = kzs_util:format_account_id(AccountId, Timestamp),
+    Id = cdr_util:get_cdr_doc_id(Timestamp, Leg),
+    _ = kz_datamgr:update_doc(DB, Id, [{update, Props}, {should_create, false}]),
+    fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
 
 -spec save_cdr(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> 'ok'.
 save_cdr(_AcctId, _Timestamp, JObj) ->
