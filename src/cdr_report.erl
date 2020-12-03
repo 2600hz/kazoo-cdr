@@ -208,7 +208,11 @@ check_attendend_transfer(AccountId, Timestamp, JObj) ->
 
 -spec originated_uuids(kz_call_event:payload()) -> kz_term:ne_binaries().
 originated_uuids(JObj) ->
-    props:filter_undefined([kz_json:get_ne_binary_value(<<"Call-ID">>, J) || J <- kz_json:get_list_value(<<"Originated-Legs">>, JObj, [])]).
+    [CallId
+     || J <- kz_json:get_list_value(<<"Originated-Legs">>, JObj, []),
+        CallId <- [kz_json:get_ne_binary_value(<<"Call-ID">>, J)],
+        CallId =/= 'undefined'
+    ].
 
 fix_att_xfer_interaction_id(AccountId, Timestamp, JObj) ->
     Props = [{<<"interaction_time">>, kapi_cdr:interaction_timestamp(JObj)}
@@ -220,11 +224,11 @@ fix_att_xfer_interaction_id(AccountId, Timestamp, JObj) ->
     lager:info_unsafe("legs => ~p", [Legs]),
     fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
 
-fix_att_xfer_interaction_id(_AccountId, _Timestamp, [], _Props) -> ok;
-fix_att_xfer_interaction_id(AccountId, Timestamp, [Leg | Legs], Props) ->
+fix_att_xfer_interaction_id(_AccountId, _Timestamp, [], _Props) -> 'ok';
+fix_att_xfer_interaction_id(AccountId, Timestamp, [LegId | Legs], Props) ->
     DB = kzs_util:format_account_id(AccountId, Timestamp),
-    Id = cdr_util:get_cdr_doc_id(Timestamp, Leg),
-    _ = kz_datamgr:update_doc(DB, Id, [{update, Props}, {should_create, false}]),
+    Id = cdr_util:get_cdr_doc_id(Timestamp, LegId),
+    _ = kz_datamgr:update_doc(DB, Id, [{'update', Props}, {'should_create', 'false'}]),
     fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
 
 -spec save_cdr(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> 'ok'.

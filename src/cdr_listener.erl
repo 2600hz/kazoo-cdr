@@ -70,8 +70,8 @@ start_link() ->
 -spec init([]) -> {'ok', state()}.
 init([]) ->
     lager:info("cdr refresher threshold: ~p, timeout: ~p", [?REFRESH_THRESHOLD, ?REFRESH_TIMEOUT]),
-    erlang:send_after(?REFRESH_TIMEOUT * ?MILLISECONDS_IN_SECOND, self(), 'timeout'),
-    {ok, #state{}}.
+    _ = erlang:send_after(?REFRESH_TIMEOUT * ?MILLISECONDS_IN_SECOND, self(), 'timeout'),
+    {'ok', #state{}}.
 
 %%------------------------------------------------------------------------------
 %% @doc Handling call messages.
@@ -144,20 +144,26 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 -spec refresh_views(map()) -> map().
 refresh_views(Counter) ->
-    Now = kz_time:now_s(),
-    RefreshTimeout = ?REFRESH_TIMEOUT,
-    HandleTimeout =
-        fun(AccountId, {Map, List}) ->
-                {From, Count} = maps:get(AccountId, Map),
-                case Now - From > RefreshTimeout
-                    andalso Count > 0 of
-                    true -> { Map#{ AccountId => {Now, 0} }, [{AccountId, From, Now} | List] };
-                    false -> {Map, List}
-                end
-        end,
-    {NewCounter, RefreshList} = lists:foldl(HandleTimeout, {Counter, []}, maps:keys(Counter)),
+    {_Now, NewCounter, RefreshList} = maps:fold(fun handle_timeout/3
+                                               ,{kz_time:now_s(), Counter, []}
+                                               ,Counter
+                                               ),
     _ = maybe_spawn_refresh_process(RefreshList),
     NewCounter.
+
+handle_timeout(AccountId, {From, Count}, {Now, Map, List}) ->
+    RefreshTimeout = ?REFRESH_TIMEOUT,
+
+    case Now - From > RefreshTimeout
+        andalso Count > 0
+    of
+        'false' -> {Now, Map, List};
+        'true' ->
+            {Now
+            ,Map#{AccountId => {Now, 0}}
+            ,[{AccountId, From, Now} | List]
+            }
+    end.
 
 -spec handle_account(map(), kz_term:api_binary()) -> map().
 handle_account(Counter, 'undefined') -> Counter;
@@ -169,39 +175,49 @@ handle_account(Counter, AccountId) ->
                     {kz_time:now_s(), 0};
                 {From, Value} -> {From, Value + 1}
             end,
-    Counter#{ AccountId => Count }.
+    Counter#{AccountId => Count}.
 
 -spec value({'ok', counter_element()} | 'error') -> counter_element().
-value({ok, Value}) -> Value;
+value({'ok', Value}) -> Value;
 value(_) -> {kz_time:now_s(), 0}.
 
--spec update_account_view(kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()) -> any().
+-spec update_account_view(kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()) -> 'ok'.
 update_account_view(AccountId, From, To) ->
     Dbs = kazoo_modb:get_range(AccountId, From, To),
     lager:info("refresh cdr view account:~p dbs:~p", [AccountId, Dbs]),
-    [ kz_datamgr:get_results(Db, ?VIEW_TO_UPDATE, [{'limit', 1}]) || Db <- Dbs ].
+    lists:foreach(fun refresh_cdr_view/1, Dbs).
 
--spec update_accounts_view([{kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()}]) -> any().
+refresh_cdr_view(Db) ->
+    {'ok', _} = kz_datamgr:get_results(Db, ?VIEW_TO_UPDATE, [{'limit', 1}]).
+
+-spec update_accounts_view([{kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()}]) -> 'ok'.
 update_accounts_view(UpdateList) ->
-    [ update_account_view(AccountId, From, To) || {AccountId, From, To} <- UpdateList ].
+    lists:foreach(fun update_account_view/1, UpdateList).
 
--spec maybe_spawn_refresh_process([{kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()}]) -> any().
-maybe_spawn_refresh_process([]) -> ok;
+update_account_view({AccountId, From, To}) ->
+    update_account_view(AccountId, From, To).
+
+-spec maybe_spawn_refresh_process([{kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()}]) -> pid() | 'ok'.
+maybe_spawn_refresh_process([]) -> 'ok';
 maybe_spawn_refresh_process(RefreshList) ->
-    _ = kz_process:spawn(fun update_accounts_view/1, [RefreshList]).
+    kz_process:spawn(fun update_accounts_view/1, [RefreshList]).
 
--spec cdr_handler() -> atom().
+-type cdr_handler() :: 'cdr_report' |
+                       'cdr_channel_destroy'.
+
+-spec cdr_handler() -> cdr_handler().
 cdr_handler() ->
-    kapps_config:get_atom(?CONFIG_CAT, <<"cdr_handler">>, cdr_report).
+    kapps_config:get_atom(?CONFIG_CAT, <<"cdr_handler">>, 'cdr_report').
 
--spec responders(atom()) -> listener_utils:responders().
-responders(cdr_report) ->
+-spec responders(cdr_handler()) ->
+          [{cdr_handler(), listener_utils:responder_callback_mappings()}].
+responders('cdr_report') ->
     [{'cdr_report', [{<<"cdr">>, <<"report">>}]}];
-responders(cdr_channel_destroy) ->
+responders('cdr_channel_destroy') ->
     [{'cdr_channel_destroy', [{<<"call_event">>, <<"CHANNEL_DESTROY">>}]}].
 
--spec bindings(atom()) -> gen_listener:bindings().
-bindings(cdr_report) ->
+-spec bindings(cdr_handler()) -> gen_listener:bindings().
+bindings('cdr_report') ->
     [{'cdr', [{'restrict_to', ['report']}]}];
-bindings(cdr_channel_destroy) ->
+bindings('cdr_channel_destroy') ->
     [{'call', [{'restrict_to', ['CHANNEL_DESTROY']}]}].
