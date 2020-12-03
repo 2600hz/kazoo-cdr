@@ -28,10 +28,12 @@
 %% @doc
 %% @end
 %%------------------------------------------------------------------------------
--spec get_cdr_doc_id(pos_integer(), kz_term:api_binary()) -> kz_term:ne_binary().
+-spec get_cdr_doc_id(kz_time:gregorian_seconds() | 'undefined', kz_term:api_binary()) ->
+          kz_term:ne_binary().
+get_cdr_doc_id('undefined', CallId) ->
+    kzd_cdrs:create_doc_id(CallId);
 get_cdr_doc_id(Timestamp, CallId) ->
-    {{Year, Month, _}, _} = calendar:gregorian_seconds_to_datetime(Timestamp),
-    get_cdr_doc_id(Year, Month, CallId).
+    kzd_cdrs:create_doc_id(CallId, Timestamp).
 
 -spec get_cdr_doc_id(pos_integer(), pos_integer(), kz_term:api_binary()) -> kz_term:ne_binary().
 get_cdr_doc_id(Year, Month, CallId) ->
