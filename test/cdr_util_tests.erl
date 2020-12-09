@@ -18,10 +18,7 @@ get_cdr_doc_id_test_() ->
     {Year, Month, _} = erlang:date(),
     Expected = <<(kz_term:to_binary(Year))/binary, (kz_date:pad_month(Month))/binary, "-", CallId/binary>>,
 
-    [{"Timestamp NOT provided"
-     ,?_assertEqual(Expected, Test('undefined', CallId))
-     }
-    ,{"Timestamp provided"
+    [{"Timestamp provided"
      ,?_assertEqual(Expected, Test(kz_time:now_s(), CallId))
      }
     ,{"Year, Month, and CallId provided"

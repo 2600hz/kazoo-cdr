@@ -28,10 +28,8 @@
 %% @doc
 %% @end
 %%------------------------------------------------------------------------------
--spec get_cdr_doc_id(kz_time:gregorian_seconds() | 'undefined', kz_term:api_binary()) ->
+-spec get_cdr_doc_id(kz_time:gregorian_seconds(), kz_term:api_binary()) ->
           kz_term:ne_binary().
-get_cdr_doc_id('undefined', CallId) ->
-    kzd_cdrs:create_doc_id(CallId);
 get_cdr_doc_id(Timestamp, CallId) ->
     kzd_cdrs:create_doc_id(CallId, Timestamp).
 
