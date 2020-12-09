@@ -24,8 +24,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(CHILDREN, [?WORKER('cdr_listener')
-                  ]).
+-define(CHILDREN, [?WORKER('cdr_listener')]).
 
 %%==============================================================================
 %% API functions
@@ -49,7 +48,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec init(any()) -> kz_types:sup_init_ret().
 init([]) ->
-    kz_process:set_startup(),
+    _ = kz_process:set_startup(),
     RestartStrategy = 'one_for_one',
     MaxRestarts = 5,
     MaxSecondsBetweenRestarts = 10,

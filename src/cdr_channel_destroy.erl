@@ -144,8 +144,12 @@ update_ccvs_foldl(Key, Value, {JObj, CCVs}=Acc) ->
             }
     end.
 
--spec set_doc_id(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) ->
+-spec set_doc_id(kz_term:api_ne_binary(), kz_time:gregorian_seconds() | 'undefined', kz_call_event:payload()) ->
           kz_call_event:payload().
+set_doc_id(AccountId, 'undefined', JObj) ->
+    lager:info("failed to find timestamp on CDR"),
+    lager:debug("event: ~p", [JObj]),
+    set_doc_id(AccountId, kz_time:now_s(), JObj);
 set_doc_id(_AcctId, Timestamp, JObj) ->
     CallId = kz_call_event:call_id(JObj),
     %% we should consider this because there is a lost channel in case of
