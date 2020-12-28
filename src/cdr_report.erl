@@ -198,7 +198,7 @@ set_interaction(_AccountId, _Timestamp, JObj) ->
 
 -spec check_attendend_transfer(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
 check_attendend_transfer(AccountId, Timestamp, JObj) ->
-    case kz_call_event:hangup_cause(JObj) of
+    case kz_call_event:endpoint_disposition(JObj) of
         <<"ATTENDED_TRANSFER">> ->
             kz_process:spawn(fun fix_att_xfer_interaction_id/3, [AccountId, Timestamp, JObj]),
             JObj;
