@@ -86,6 +86,7 @@ prepare_and_save(AccountId, Timestamp, JObj) ->
                ,fun maybe_set_did_classifier/3
                ,fun is_conference/3
                ,fun check_attendend_transfer/3
+               ,fun check_attendend_transfer_loopback/3
                ,fun set_interaction/3
                ,fun update_pvt_parameters/3 %% due to interaction-timestamp MUST be called LAST
                ,fun save_cdr/3
@@ -206,30 +207,88 @@ check_attendend_transfer(AccountId, Timestamp, JObj) ->
             JObj
     end.
 
--spec originated_uuids(kz_call_event:payload()) -> kz_term:ne_binaries().
-originated_uuids(JObj) ->
+-spec check_attendend_transfer_loopback(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> kz_call_event:payload().
+check_attendend_transfer_loopback(AccountId, Timestamp, JObj) ->
+    case is_loopback_leg_payload(JObj, <<"A">>) of
+        true ->
+            Props = att_xfer_update_props(JObj),
+            LoopbackBLeg = kz_json:get_ne_binary_value(<<"Channel-Loopback-Other-Leg-ID">>, JObj),
+            kz_process:spawn(fun fix_att_xfer_id_loopback_delayed/4, [AccountId, Timestamp, Props, LoopbackBLeg]),
+            JObj;
+        _Other ->
+            JObj
+    end.
+
+-spec originated_uuids_payload(kz_call_event:payload()) -> kz_term:ne_binaries().
+originated_uuids_payload(JObj) ->
     [CallId
      || J <- kz_json:get_list_value(<<"Originated-Legs">>, JObj, []),
         CallId <- [kz_json:get_ne_binary_value(<<"Call-ID">>, J)],
         CallId =/= 'undefined'
     ].
 
+-spec originated_uuids(kz_call_event:payload()) -> kz_term:ne_binaries().
+originated_uuids(JObj) ->
+    [CallId
+     || J <- kz_json:get_list_value(<<"originated_legs">>, JObj, []),
+        CallId <- [kz_json:get_ne_binary_value(<<"call_id">>, J)],
+        CallId =/= 'undefined'
+    ].
+
+att_xfer_update_props(JObj) ->
+    [{<<"interaction_time">>, kapi_cdr:interaction_timestamp(JObj)}
+    ,{<<"interaction_key">>, kapi_cdr:interaction_key(JObj)}
+    ,{<<"interaction_id">>, kapi_cdr:interaction_id(JObj)}
+    ,{<<"interaction_is_root">>, null}
+    ].
+
 fix_att_xfer_interaction_id(AccountId, Timestamp, JObj) ->
-    Props = [{<<"interaction_time">>, kapi_cdr:interaction_timestamp(JObj)}
-            ,{<<"interaction_key">>, kapi_cdr:interaction_key(JObj)}
-            ,{<<"interaction_id">>, kapi_cdr:interaction_id(JObj)}
-            ,{<<"interaction_is_root">>, null}
-            ],
-    Legs = originated_uuids(JObj),
+    Props = att_xfer_update_props(JObj),
+    Legs = originated_uuids_payload(JObj),
     lager:info_unsafe("legs => ~p", [Legs]),
+    timer:sleep(?MILLISECONDS_IN_SECOND * 10),
     fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
 
 fix_att_xfer_interaction_id(_AccountId, _Timestamp, [], _Props) -> 'ok';
 fix_att_xfer_interaction_id(AccountId, Timestamp, [LegId | Legs], Props) ->
     DB = kzs_util:format_account_id(AccountId, Timestamp),
     Id = cdr_util:get_cdr_doc_id(Timestamp, LegId),
-    _ = kz_datamgr:update_doc(DB, Id, [{'update', Props}, {'should_create', 'false'}]),
+    Result = kz_datamgr:update_doc(DB, Id, [{'update', Props}, {'should_create', 'false'}]),
+    maybe_fix_att_xfer_id_loopback(AccountId, Timestamp, Props, Result),
     fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
+
+maybe_fix_att_xfer_id_loopback(AccountId, Timestamp, Props, {ok, Updated}) ->
+    case is_loopback_leg(Updated, <<"A">>) of
+        true ->
+            LoopbackBLeg = kz_json:get_ne_binary_value(<<"channel_loopback_other_leg_id">>, Updated),
+            fix_att_xfer_id_loopback(AccountId, Timestamp, Props, LoopbackBLeg);
+        false -> ok
+    end;
+maybe_fix_att_xfer_id_loopback(_AccountId, _Timestamp, _Props, _Other) -> ok.
+
+fix_att_xfer_id_loopback(_AccountId, _Timestamp, _Props, undefined) ->
+    lager:warning("cdr of loopback A channel misses B leg");
+fix_att_xfer_id_loopback(AccountId, Timestamp, Props, LoopbackBLeg) ->
+    DB = kzs_util:format_account_id(AccountId, Timestamp),
+    Id = cdr_util:get_cdr_doc_id(Timestamp, LoopbackBLeg),
+    case kz_datamgr:update_doc(DB, Id, [{'update', Props}, {'should_create', 'false'}]) of
+        {ok, JObj} -> fix_att_xfer_interaction_id(AccountId, Timestamp, originated_uuids(JObj), Props);
+        _Other -> ok
+    end.
+
+fix_att_xfer_id_loopback_delayed(AccountId, Timestamp, Props, LoopbackBLeg) ->
+    timer:sleep(?MILLISECONDS_IN_SECOND * 10),
+    fix_att_xfer_id_loopback(AccountId, Timestamp, Props, LoopbackBLeg).
+
+is_loopback_leg(JObj, Leg) ->
+    kz_json:is_true(<<"channel_is_loopback">>, JObj)
+        andalso kz_json:is_true(<<"channel_loopback_bowout">>, JObj)
+        andalso kz_json:get_ne_binary_value(<<"channel_loopback_leg">>, JObj) =:= Leg.
+
+is_loopback_leg_payload(JObj, Leg) ->
+    kz_json:is_true(<<"Channel-Is-Loopback">>, JObj)
+        andalso kz_json:is_true(<<"Channel-Loopback-Bowout">>, JObj)
+        andalso kz_json:get_ne_binary_value(<<"Channel-Loopback-Leg">>, JObj) =:= Leg.
 
 -spec save_cdr(kz_term:api_ne_binary(), kz_time:gregorian_seconds(), kz_call_event:payload()) -> 'ok'.
 save_cdr(_AcctId, _Timestamp, JObj) ->
