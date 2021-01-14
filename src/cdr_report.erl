@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2020, 2600Hz
+%%% @copyright (C) 2010-2021, 2600Hz
 %%% @doc Listen for CDR events and record them to the database
 %%% This Source Code Form is subject to the terms of the Mozilla Public
 %%% License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -56,18 +56,9 @@ maybe_ignore_app(JObj) ->
 maybe_ignore_loopback(JObj) ->
     {kz_term:is_true(?IGNORE_LOOPBACK(kz_call_event:account_id(JObj)))
      andalso kz_json:is_true(<<"Channel-Is-Loopback">>, JObj)
-     andalso kz_json:is_true(<<"Channel-Loopback-Bowout">>, JObj)
-     andalso kz_json:is_true(<<"Channel-Loopback-Bowout-Execute">>, JObj)
-     andalso (is_normal_hangup_cause(kz_call_event:hangup_cause(JObj))
-              orelse kz_json:get_ne_binary_value(<<"Channel-Loopback-Leg">>, JObj) =/= <<"B">>
-             ),
+     andalso kz_json:is_true(<<"Channel-Loopback-Bowout">>, JObj),
      <<"ignoring cdr request for loopback channel">>
     }.
-
--spec is_normal_hangup_cause(kz_term:api_ne_binary()) -> boolean().
-is_normal_hangup_cause('undefined') -> 'true';
-is_normal_hangup_cause(<<"NORMAL", _/binary>>) -> 'true';
-is_normal_hangup_cause(_) -> 'false'.
 
 -spec handle_req(kz_call_event:payload()) -> 'ok'.
 handle_req(JObj) ->
