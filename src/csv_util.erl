@@ -16,8 +16,7 @@
 -include("cdr.hrl").
 
 %% API
--export([json_objs_to_csv/1,
-         json_objs_to_csv/2
+-export([json_objs_to_csv/1
         ,test_convert/1
         ]).
 
@@ -32,12 +31,8 @@
 %% @end
 %%------------------------------------------------------------------------------
 -spec json_objs_to_csv(kz_json:objects()) -> iolist().
+json_objs_to_csv([]) -> [];
 json_objs_to_csv(JObjs) ->
-    json_objs_to_csv(JObjs, ?INCLUDE_HEADERS).
-
--spec json_objs_to_csv(kz_json:objects(), boolean()) -> iolist().
-json_objs_to_csv([], _) -> [];
-json_objs_to_csv(JObjs, _) ->
     kz_json:encode(JObjs).
 
 -spec test_convert(kz_term:ne_binary()) -> 'ok' | {'error', any()}.
@@ -48,14 +43,17 @@ test_convert(AccountDb) ->
         {'error', _E} ->
             lager:error("failed view ~s: ~p", [AccountDb, _E]), [];
         {'ok', JObjs} ->
-            CdrDocs = lists:foldr(fun(JObj, Acc) ->
-                                          Doc = kz_json:get_value([<<"doc">>], JObj),
-                                          CdrDoc = kz_json:delete_key(<<"custom_channel_vars">>, Doc),
-                                          [CdrDoc | Acc]
-                                  end, [], JObjs),
-            CsvData = json_objs_to_csv(CdrDocs),
-            maybe_save_csv("test.csv", CsvData)
+            test_convert_cdrs(JObjs)
     end.
+
+test_convert_cdrs(JObjs) ->
+    CdrDocs = lists:foldr(fun test_convert_cdr/2, [], JObjs),
+    CsvData = json_objs_to_csv(CdrDocs),
+    maybe_save_csv("test.csv", CsvData).
+
+test_convert_cdr(JObj, Acc) ->
+    Doc = kz_json:get_json_value([<<"doc">>], JObj),
+    [kz_json:delete_key(<<"custom_channel_vars">>, Doc) | Acc].
 
 %%%=============================================================================
 %%% Internal functions
