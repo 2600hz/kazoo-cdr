@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2020, 2600Hz
+%%% @copyright (C) 2010-2022, 2600Hz
 %%% @doc Listen for CDR events and record them to the database
 %%% @author James Aimonetti
 %%% @author Edouard Swiac
@@ -188,7 +188,7 @@ update_account_view(AccountId, From, To) ->
     lists:foreach(fun refresh_cdr_view/1, Dbs).
 
 refresh_cdr_view(Db) ->
-    {'ok', _} = kz_datamgr:get_results(Db, ?VIEW_TO_UPDATE, [{'limit', 1}]).
+    {'ok', _} = kazoo_modb:get_results(Db, ?VIEW_TO_UPDATE, [{'limit', 1}]).
 
 -spec update_accounts_view([{kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_time:gregorian_seconds()}]) -> 'ok'.
 update_accounts_view(UpdateList) ->
