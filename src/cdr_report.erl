@@ -15,6 +15,13 @@
 
 -define(IGNORED_APP, kapps_config:get(?CONFIG_CAT, <<"ignore_apps">>, [<<"milliwatt">>])).
 
+-define(REORDER_KEY, <<"ignore_reorder_reasons">>).
+-define(IGNORED_REORDER(AccountId),
+        case AccountId of
+            'undefined' -> kapps_config:get(?CONFIG_CAT, ?REORDER_KEY, []);
+            _ -> kapps_account_config:get_global(AccountId, ?CONFIG_CAT, ?REORDER_KEY, [])
+        end).
+
 -define(LOOPBACK_KEY, <<"ignore_loopback_bowout">>).
 -define(IGNORE_LOOPBACK(AccountId),
         case AccountId of
@@ -28,6 +35,7 @@ handle_req(JObj, _Props) ->
     _ = kz_log:put_callid(JObj),
     Routines = [fun maybe_ignore_app/1
                ,fun maybe_ignore_loopback/1
+               ,fun maybe_ignore_reorder/1
                ],
     case lists:foldl(fun(F, Acc) -> maybe_ignore_cdr(F, Acc, JObj) end, [], Routines) of
         [] -> handle_req(JObj);
@@ -56,6 +64,15 @@ maybe_ignore_loopback(JObj) ->
      andalso kz_json:is_true(<<"Channel-Is-Loopback">>, JObj)
      andalso kz_json:is_true(<<"Channel-Loopback-Bowout">>, JObj)
     ,<<"ignoring cdr request for loopback channel">>
+    }.
+
+-spec maybe_ignore_reorder(kz_call_event:payload()) -> {boolean(), binary()}.
+maybe_ignore_reorder(JObj) ->
+    Reason = kz_call_event:custom_channel_var(JObj, <<"Reorder-Reason">>, <<"no_reason">>),
+    AppName = kz_call_event:custom_channel_var(JObj, <<"Application-Name">>),
+    {(AppName =:= <<"reorder">>)
+         and lists:member(Reason, ?IGNORED_REORDER(kz_call_event:account_id(JObj)))
+    ,<<"ignoring reorder cdr for ", Reason/binary>>
     }.
 
 -spec handle_req(kz_call_event:payload()) -> 'ok'.
