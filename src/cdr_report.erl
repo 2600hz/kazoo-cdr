@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2021, 2600Hz
+%%% @copyright (C) 2010-2022, 2600Hz
 %%% @doc Listen for CDR events and record them to the database
 %%% This Source Code Form is subject to the terms of the Mozilla Public
 %%% License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -164,7 +164,7 @@ att_xfer_update_props(JObj) ->
 fix_att_xfer_interaction_id(AccountId, Timestamp, JObj) ->
     Props = att_xfer_update_props(JObj),
     Legs = originated_uuids_payload(JObj),
-    lager:info_unsafe("legs => ~p", [Legs]),
+    lager:info_unsafe("legs => ~s", [kz_binary:join(Legs)]),
     timer:sleep(?MILLISECONDS_IN_SECOND * 10),
     fix_att_xfer_interaction_id(AccountId, Timestamp, Legs, Props).
 
