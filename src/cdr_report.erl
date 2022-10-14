@@ -18,7 +18,7 @@
 -define(REORDER_KEY, <<"ignore_reorder_reasons">>).
 -define(IGNORED_REORDER(AccountId),
         case AccountId of
-            'undefined' -> kapps_config:get(?CONFIG_CAT, ?REORDER_KEY, []);
+            'undefined' -> kapps_config:get_ne_binaries(?CONFIG_CAT, ?REORDER_KEY, []);
             _ -> kapps_account_config:get_global(AccountId, ?CONFIG_CAT, ?REORDER_KEY, [])
         end).
 
@@ -71,7 +71,7 @@ maybe_ignore_reorder(JObj) ->
     Reason = kz_call_event:custom_channel_var(JObj, <<"Reorder-Reason">>, <<"no_reason">>),
     AppName = kz_call_event:custom_channel_var(JObj, <<"Application-Name">>),
     {(AppName =:= <<"reorder">>)
-         and lists:member(Reason, ?IGNORED_REORDER(kz_call_event:account_id(JObj)))
+     andalso lists:member(Reason, ?IGNORED_REORDER(kz_call_event:account_id(JObj)))
     ,<<"ignoring reorder cdr for ", Reason/binary>>
     }.
 
