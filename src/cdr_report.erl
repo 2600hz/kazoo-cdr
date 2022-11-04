@@ -63,6 +63,7 @@ maybe_ignore_loopback(JObj) ->
     {kz_term:is_true(?IGNORE_LOOPBACK(kz_call_event:account_id(JObj)))
      andalso kz_json:is_true(<<"Channel-Is-Loopback">>, JObj)
      andalso kz_json:is_true(<<"Channel-Loopback-Bowout">>, JObj)
+     andalso kz_json:is_true(<<"Channel-Loopback-Bowout-Used">>, JObj)
     ,<<"ignoring cdr request for loopback channel">>
     }.
 
