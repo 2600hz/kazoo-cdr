@@ -28,7 +28,7 @@
 -include("cdr.hrl").
 -define(VIEW_TO_UPDATE, <<"interactions/interaction_listing">>).
 -define(REFRESH_THRESHOLD, kapps_config:get_integer(?CONFIG_CAT, <<"refresh_view_threshold">>, 10)).
--define(REFRESH_TIMEOUT, kapps_config:get_integer(?CONFIG_CAT, <<"refresh_view_timeout">>, 900)).
+-define(REFRESH_TIMEOUT_S, kapps_config:get_integer(?CONFIG_CAT, <<"refresh_view_timeout">>, 900)).
 -define(REFRESH_ENABLED, kapps_config:get_is_true(?CONFIG_CAT, <<"refresh_view_enabled">>, 'false')).
 
 -record(state, {counter = #{} :: map()}).
@@ -69,8 +69,8 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec init([]) -> {'ok', state()}.
 init([]) ->
-    lager:info("cdr refresher threshold: ~p, timeout: ~p", [?REFRESH_THRESHOLD, ?REFRESH_TIMEOUT]),
-    _ = erlang:send_after(?REFRESH_TIMEOUT * ?MILLISECONDS_IN_SECOND, self(), 'timeout'),
+    lager:info("cdr refresher threshold: ~p, timeout: ~p", [?REFRESH_THRESHOLD, ?REFRESH_TIMEOUT_S]),
+    _ = erlang:send_after(?REFRESH_TIMEOUT_S * ?MILLISECONDS_IN_SECOND, self(), 'timeout'),
     {'ok', #state{}}.
 
 %%------------------------------------------------------------------------------
@@ -95,7 +95,7 @@ handle_cast(_Msg, State) ->
 %%------------------------------------------------------------------------------
 -spec handle_info(any(), state()) -> kz_types:handle_info_ret_state(state()).
 handle_info('timeout', #state{counter = Counter} = State) ->
-    _ = erlang:send_after(?REFRESH_TIMEOUT * ?MILLISECONDS_IN_SECOND, self(), 'timeout'),
+    _ = erlang:send_after(?REFRESH_TIMEOUT_S * ?MILLISECONDS_IN_SECOND, self(), 'timeout'),
     case ?REFRESH_ENABLED of
         'false' -> {'noreply', State};
         'true' ->
@@ -152,7 +152,7 @@ refresh_views(Counter) ->
     NewCounter.
 
 handle_timeout(AccountId, {From, Count}, {Now, Map, List}) ->
-    RefreshTimeout = ?REFRESH_TIMEOUT,
+    RefreshTimeout = ?REFRESH_TIMEOUT_S,
 
     case Now - From > RefreshTimeout
         andalso Count > 0
