@@ -8,6 +8,7 @@
         ]
     },
     "language": "javascript",
+    "autoupdate": false,
     "views": {
         "listing_by_id": {
             "map": [
